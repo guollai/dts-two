@@ -76,3 +76,25 @@ def test_node_source_ref_optional_fields_default_none():
     assert ref.source_page is None
     assert ref.component_id is None
     assert ref.rule_id is None
+
+
+def test_relation_from_field_uses_from_alias_in_json():
+    """Verify that Relation.from_ field correctly aliases to 'from' in JSON."""
+    # Test 1: Construct from dict with literal "from" key
+    relation = Relation.model_validate(
+        {"kind": "control", "from": "soc_tlmm:gpio23", "to": "redriver0"}
+    )
+    assert relation.from_ == "soc_tlmm:gpio23"
+
+    # Test 2: Dump with by_alias=True produces literal "from" key
+    dumped = relation.model_dump(by_alias=True)
+    assert "from" in dumped
+    assert dumped["from"] == "soc_tlmm:gpio23"
+    assert "from_" not in dumped
+
+    # Test 3: Round-trip via JSON with by_alias=True
+    json_str = relation.model_dump_json(by_alias=True)
+    assert '"from"' in json_str
+    assert '"from_"' not in json_str
+    restored = Relation.model_validate_json(json_str)
+    assert restored.from_ == "soc_tlmm:gpio23"
