@@ -13,7 +13,7 @@ from dts_gen.core.pipeline.input_parser import InputFile, parse_input
 from dts_gen.core.pipeline.repairer import repair_dts as _repair_dts
 from dts_gen.core.pipeline.soc_mapper import map_to_soc
 from dts_gen.core.pipeline.validator import validate_dts as _validate_dts
-from dts_gen.core.task import TaskEvent, TaskInput, TaskNotFoundError, TaskStore
+from dts_gen.core.task import Task, TaskEvent, TaskInput, TaskNotFoundError, TaskStore
 from dts_gen.mcp_app.errors import PreconditionError, generic_error, precondition_error, require_dts_ref, require_ir_ref
 
 
@@ -67,6 +67,27 @@ def _load_dts(ctx: ToolContext, task_id: str, dts_ref: str) -> str:
     return (ctx.dts_dir / task_id / "dts" / filename).read_text(encoding="utf-8")
 
 
+def _get_task_or_error(ctx: ToolContext, task_id: str) -> tuple[Task | None, dict | None]:
+    try:
+        return ctx.task_store.get(task_id), None
+    except TaskNotFoundError:
+        return None, generic_error(task_id, "task_not_found", hint=f"no such task: {task_id}")
+
+
+def _require_ir_ref_or_error(task_id: str, task: Task) -> tuple[str | None, dict | None]:
+    try:
+        return require_ir_ref(task), None
+    except PreconditionError as exc:
+        return None, precondition_error(task_id, exc.missing, exc.hint)
+
+
+def _require_dts_ref_or_error(task_id: str, task: Task) -> tuple[str | None, dict | None]:
+    try:
+        return require_dts_ref(task), None
+    except PreconditionError as exc:
+        return None, precondition_error(task_id, exc.missing, exc.hint)
+
+
 def ingest_input(
     ctx: ToolContext,
     files: list[dict],
@@ -100,10 +121,9 @@ def ingest_input(
 def extract_hardware_graph(
     ctx: ToolContext, task_id: str, page_range: list[int] | None = None
 ) -> dict:
-    try:
-        task = ctx.task_store.get(task_id)
-    except TaskNotFoundError:
-        return generic_error(task_id, "task_not_found", hint=f"no such task: {task_id}")
+    task, error = _get_task_or_error(ctx, task_id)
+    if error is not None:
+        return error
 
     range_tuple = (page_range[0], page_range[1]) if page_range else None
     input_files = [InputFile(path=i.path, type=i.type) for i in task.inputs]
@@ -142,15 +162,13 @@ def extract_hardware_graph(
 
 
 def identify_soc_mapping(ctx: ToolContext, task_id: str, soc: str) -> dict:
-    try:
-        task = ctx.task_store.get(task_id)
-    except TaskNotFoundError:
-        return generic_error(task_id, "task_not_found", hint=f"no such task: {task_id}")
+    task, error = _get_task_or_error(ctx, task_id)
+    if error is not None:
+        return error
 
-    try:
-        ir_ref = require_ir_ref(task)
-    except PreconditionError as exc:
-        return precondition_error(task_id, exc.missing, exc.hint)
+    ir_ref, error = _require_ir_ref_or_error(task_id, task)
+    if error is not None:
+        return error
 
     ir = ctx.ir_store.load(task_id, ir_ref)
     result = map_to_soc(ir, soc=soc)
@@ -182,15 +200,13 @@ def identify_soc_mapping(ctx: ToolContext, task_id: str, soc: str) -> dict:
 
 
 def generate_dts(ctx: ToolContext, task_id: str, scope: dict | None = None) -> dict:
-    try:
-        task = ctx.task_store.get(task_id)
-    except TaskNotFoundError:
-        return generic_error(task_id, "task_not_found", hint=f"no such task: {task_id}")
+    task, error = _get_task_or_error(ctx, task_id)
+    if error is not None:
+        return error
 
-    try:
-        ir_ref = require_ir_ref(task)
-    except PreconditionError as exc:
-        return precondition_error(task_id, exc.missing, exc.hint)
+    ir_ref, error = _require_ir_ref_or_error(task_id, task)
+    if error is not None:
+        return error
 
     ir = ctx.ir_store.load(task_id, ir_ref)
     result = _generate_dts(ir, board=task.board, scope=GenerationScope(**(scope or {})))
@@ -222,15 +238,13 @@ def generate_dts(ctx: ToolContext, task_id: str, scope: dict | None = None) -> d
 
 
 def validate_dts(ctx: ToolContext, task_id: str) -> dict:
-    try:
-        task = ctx.task_store.get(task_id)
-    except TaskNotFoundError:
-        return generic_error(task_id, "task_not_found", hint=f"no such task: {task_id}")
+    task, error = _get_task_or_error(ctx, task_id)
+    if error is not None:
+        return error
 
-    try:
-        dts_ref = require_dts_ref(task)
-    except PreconditionError as exc:
-        return precondition_error(task_id, exc.missing, exc.hint)
+    dts_ref, error = _require_dts_ref_or_error(task_id, task)
+    if error is not None:
+        return error
 
     dts_text = _load_dts(ctx, task_id, dts_ref)
     result = _validate_dts(dts_text)
@@ -260,15 +274,13 @@ def validate_dts(ctx: ToolContext, task_id: str) -> dict:
 
 
 def repair_dts(ctx: ToolContext, task_id: str) -> dict:
-    try:
-        task = ctx.task_store.get(task_id)
-    except TaskNotFoundError:
-        return generic_error(task_id, "task_not_found", hint=f"no such task: {task_id}")
+    task, error = _get_task_or_error(ctx, task_id)
+    if error is not None:
+        return error
 
-    try:
-        dts_ref = require_dts_ref(task)
-    except PreconditionError as exc:
-        return precondition_error(task_id, exc.missing, exc.hint)
+    dts_ref, error = _require_dts_ref_or_error(task_id, task)
+    if error is not None:
+        return error
 
     dts_text = _load_dts(ctx, task_id, dts_ref)
     result = _repair_dts(dts_text, errors=[])
@@ -299,15 +311,13 @@ def repair_dts(ctx: ToolContext, task_id: str) -> dict:
 
 
 def diff_dts(ctx: ToolContext, task_id: str, existing_dts_path: str) -> dict:
-    try:
-        task = ctx.task_store.get(task_id)
-    except TaskNotFoundError:
-        return generic_error(task_id, "task_not_found", hint=f"no such task: {task_id}")
+    task, error = _get_task_or_error(ctx, task_id)
+    if error is not None:
+        return error
 
-    try:
-        dts_ref = require_dts_ref(task)
-    except PreconditionError as exc:
-        return precondition_error(task_id, exc.missing, exc.hint)
+    dts_ref, error = _require_dts_ref_or_error(task_id, task)
+    if error is not None:
+        return error
 
     existing_path = Path(existing_dts_path)
     if not existing_path.exists():
@@ -325,15 +335,13 @@ def diff_dts(ctx: ToolContext, task_id: str, existing_dts_path: str) -> dict:
 
 
 def explain_node(ctx: ToolContext, task_id: str, node_path: str) -> dict:
-    try:
-        task = ctx.task_store.get(task_id)
-    except TaskNotFoundError:
-        return generic_error(task_id, "task_not_found", hint=f"no such task: {task_id}")
+    task, error = _get_task_or_error(ctx, task_id)
+    if error is not None:
+        return error
 
-    try:
-        ir_ref = require_ir_ref(task)
-    except PreconditionError as exc:
-        return precondition_error(task_id, exc.missing, exc.hint)
+    ir_ref, error = _require_ir_ref_or_error(task_id, task)
+    if error is not None:
+        return error
 
     ir = ctx.ir_store.load(task_id, ir_ref)
     result = _explain_node(ir, node_path=node_path)

@@ -112,3 +112,78 @@ def test_explain_node_returns_empty_when_no_unresolved_match(ctx, tmp_path: Path
 
     assert result["source_refs"] == []
     assert result["rule_ids"] == []
+
+
+def test_identify_soc_mapping_returns_precondition_error_without_extraction(ctx, tmp_path: Path):
+    pdf_path = tmp_path / "schematic.pdf"
+    make_minimal_pdf(pdf_path, pages=1)
+    created = tools.ingest_input(ctx, files=[{"path": str(pdf_path), "type": "pdf"}], project="p")
+
+    result = tools.identify_soc_mapping(ctx, task_id=created["task_id"], soc="sa8775p")
+
+    assert result["error"] == "precondition_failed"
+    assert result["missing"] == "ir_ref"
+
+
+def test_validate_dts_returns_precondition_error_without_generation(ctx, tmp_path: Path):
+    pdf_path = tmp_path / "schematic.pdf"
+    make_minimal_pdf(pdf_path, pages=1)
+    created = tools.ingest_input(ctx, files=[{"path": str(pdf_path), "type": "pdf"}], project="p")
+    task_id = created["task_id"]
+    tools.extract_hardware_graph(ctx, task_id=task_id)
+
+    result = tools.validate_dts(ctx, task_id=task_id)
+
+    assert result["error"] == "precondition_failed"
+    assert result["missing"] == "dts_ref"
+
+
+def test_diff_dts_returns_precondition_error_without_generation(ctx, tmp_path: Path):
+    pdf_path = tmp_path / "schematic.pdf"
+    make_minimal_pdf(pdf_path, pages=1)
+    created = tools.ingest_input(ctx, files=[{"path": str(pdf_path), "type": "pdf"}], project="p")
+    task_id = created["task_id"]
+
+    existing = tmp_path / "board.dts"
+    existing.write_text("&usb_0 { status = \"disabled\"; };\n", encoding="utf-8")
+
+    result = tools.diff_dts(ctx, task_id=task_id, existing_dts_path=str(existing))
+
+    assert result["error"] == "precondition_failed"
+    assert result["missing"] == "dts_ref"
+
+
+def test_explain_node_returns_precondition_error_without_extraction(ctx, tmp_path: Path):
+    pdf_path = tmp_path / "schematic.pdf"
+    make_minimal_pdf(pdf_path, pages=1)
+    created = tools.ingest_input(ctx, files=[{"path": str(pdf_path), "type": "pdf"}], project="p")
+
+    result = tools.explain_node(ctx, task_id=created["task_id"], node_path="&usb_0")
+
+    assert result["error"] == "precondition_failed"
+    assert result["missing"] == "ir_ref"
+
+
+def test_ingest_input_returns_file_not_found_for_missing_file(ctx, tmp_path: Path):
+    missing_path = tmp_path / "does-not-exist.pdf"
+
+    result = tools.ingest_input(
+        ctx, files=[{"path": str(missing_path), "type": "pdf"}], project="p"
+    )
+
+    assert result["error"] == "file_not_found"
+
+
+def test_diff_dts_returns_file_not_found_for_missing_existing_dts(ctx, tmp_path: Path):
+    pdf_path = tmp_path / "schematic.pdf"
+    make_minimal_pdf(pdf_path, pages=1)
+    created = tools.ingest_input(ctx, files=[{"path": str(pdf_path), "type": "pdf"}], project="p")
+    task_id = created["task_id"]
+    tools.extract_hardware_graph(ctx, task_id=task_id)
+    tools.generate_dts(ctx, task_id=task_id)
+
+    missing_existing = tmp_path / "does-not-exist.dts"
+
+    result = tools.diff_dts(ctx, task_id=task_id, existing_dts_path=str(missing_existing))
+
+    assert result["error"] == "file_not_found"
