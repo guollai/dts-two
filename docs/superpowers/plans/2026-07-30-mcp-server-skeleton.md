@@ -1820,11 +1820,13 @@ git commit -m "feat: add knowledge loaders (SocRepo/BindingRepo/DeviceDb/StyleGu
 
 **Interfaces:**
 - Produces（供 Task 16 使用）:
-  - `precondition_error(missing: str, hint: str) -> dict` — 返回 `{"error": "precondition_failed", "missing": missing, "hint": hint}`
-  - `generic_error(message: str, hint: str) -> dict` — 返回 `{"error": message, "hint": hint}`
+  - `precondition_error(task_id: str | None, missing: str, hint: str) -> dict` — 返回 `{"task_id": task_id, "error": "precondition_failed", "missing": missing, "hint": hint}`
+  - `generic_error(task_id: str | None, message: str, hint: str) -> dict` — 返回 `{"task_id": task_id, "error": message, "hint": hint}`
   - `require_ir_ref(task) -> str` — 若 `task.ir_ref` 为 `None` 抛 `PreconditionError`；否则返回 `task.ir_ref`
   - `require_dts_ref(task) -> str` — 同上，检查 `task.dts_ref`
   - `PreconditionError(Exception)` — 携带 `missing: str`、`hint: str` 属性
+
+**关于 `task_id` 字段**：Global Constraints 要求"所有 Tool 输出必须包含 `task_id` 字段"，该约束覆盖错误响应。`generic_error`/`precondition_error` 因此都以 `task_id` 为第一个参数，返回字典始终带 `task_id` 键；当错误发生在任务创建之前（例如 `ingest_input` 输入文件不存在，此时还没有 `task_id`），调用方传入 `None`，字段仍存在但值为 `None`——满足"字段始终存在"这一字面要求。此约束只针对 **Tool** 输出，不适用于 Task 17 的 Resource 读取函数（`read_binding`/`read_device` 等）返回的 `{"error": "not_found", ...}`，因为 spec 三节的统一规则原文写的是"所有 Tool 输出"。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -1853,19 +1855,26 @@ def _make_task(**overrides) -> Task:
 
 
 def test_precondition_error_shape():
-    result = precondition_error(missing="ir_ref", hint="call extract_hardware_graph first")
+    result = precondition_error(task_id="task001", missing="ir_ref", hint="call extract_hardware_graph first")
 
     assert result == {
+        "task_id": "task001",
         "error": "precondition_failed",
         "missing": "ir_ref",
         "hint": "call extract_hardware_graph first",
     }
 
 
-def test_generic_error_shape():
-    result = generic_error("file_not_found", hint="check the input path")
+def test_precondition_error_allows_none_task_id():
+    result = precondition_error(task_id=None, missing="ir_ref", hint="call extract_hardware_graph first")
 
-    assert result == {"error": "file_not_found", "hint": "check the input path"}
+    assert result["task_id"] is None
+
+
+def test_generic_error_shape():
+    result = generic_error("task001", "file_not_found", hint="check the input path")
+
+    assert result == {"task_id": "task001", "error": "file_not_found", "hint": "check the input path"}
 
 
 def test_require_ir_ref_raises_when_missing():
@@ -1923,12 +1932,12 @@ class PreconditionError(Exception):
         self.hint = hint
 
 
-def precondition_error(missing: str, hint: str) -> dict:
-    return {"error": "precondition_failed", "missing": missing, "hint": hint}
+def precondition_error(task_id: str | None, missing: str, hint: str) -> dict:
+    return {"task_id": task_id, "error": "precondition_failed", "missing": missing, "hint": hint}
 
 
-def generic_error(message: str, hint: str) -> dict:
-    return {"error": message, "hint": hint}
+def generic_error(task_id: str | None, message: str, hint: str) -> dict:
+    return {"task_id": task_id, "error": message, "hint": hint}
 
 
 def require_ir_ref(task: Task) -> str:
@@ -2189,7 +2198,7 @@ def ingest_input(
     try:
         parsed = parse_input(input_files)
     except FileNotFoundError as exc:
-        return generic_error("file_not_found", hint=f"input file not found: {exc}")
+        return generic_error(None, "file_not_found", hint=f"input file not found: {exc}")
 
     task = ctx.task_store.create(project=project, soc=soc, board=board)
     task.inputs = [TaskInput(path=f.path, type=f.type) for f in input_files]
@@ -2214,7 +2223,7 @@ def extract_hardware_graph(
     try:
         task = ctx.task_store.get(task_id)
     except TaskNotFoundError:
-        return generic_error("task_not_found", hint=f"no such task: {task_id}")
+        return generic_error(task_id, "task_not_found", hint=f"no such task: {task_id}")
 
     range_tuple = (page_range[0], page_range[1]) if page_range else None
     input_files = [InputFile(path=i.path, type=i.type) for i in task.inputs]
@@ -2256,12 +2265,12 @@ def identify_soc_mapping(ctx: ToolContext, task_id: str, soc: str) -> dict:
     try:
         task = ctx.task_store.get(task_id)
     except TaskNotFoundError:
-        return generic_error("task_not_found", hint=f"no such task: {task_id}")
+        return generic_error(task_id, "task_not_found", hint=f"no such task: {task_id}")
 
     try:
         ir_ref = require_ir_ref(task)
     except PreconditionError as exc:
-        return precondition_error(exc.missing, exc.hint)
+        return precondition_error(task_id, exc.missing, exc.hint)
 
     ir = ctx.ir_store.load(task_id, ir_ref)
     result = map_to_soc(ir, soc=soc)
@@ -2296,12 +2305,12 @@ def generate_dts(ctx: ToolContext, task_id: str, scope: dict | None = None) -> d
     try:
         task = ctx.task_store.get(task_id)
     except TaskNotFoundError:
-        return generic_error("task_not_found", hint=f"no such task: {task_id}")
+        return generic_error(task_id, "task_not_found", hint=f"no such task: {task_id}")
 
     try:
         ir_ref = require_ir_ref(task)
     except PreconditionError as exc:
-        return precondition_error(exc.missing, exc.hint)
+        return precondition_error(task_id, exc.missing, exc.hint)
 
     ir = ctx.ir_store.load(task_id, ir_ref)
     result = _generate_dts(ir, board=task.board, scope=GenerationScope(**(scope or {})))
@@ -2336,12 +2345,12 @@ def validate_dts(ctx: ToolContext, task_id: str) -> dict:
     try:
         task = ctx.task_store.get(task_id)
     except TaskNotFoundError:
-        return generic_error("task_not_found", hint=f"no such task: {task_id}")
+        return generic_error(task_id, "task_not_found", hint=f"no such task: {task_id}")
 
     try:
         dts_ref = require_dts_ref(task)
     except PreconditionError as exc:
-        return precondition_error(exc.missing, exc.hint)
+        return precondition_error(task_id, exc.missing, exc.hint)
 
     dts_text = _load_dts(ctx, task_id, dts_ref)
     result = _validate_dts(dts_text)
@@ -2374,12 +2383,12 @@ def repair_dts(ctx: ToolContext, task_id: str) -> dict:
     try:
         task = ctx.task_store.get(task_id)
     except TaskNotFoundError:
-        return generic_error("task_not_found", hint=f"no such task: {task_id}")
+        return generic_error(task_id, "task_not_found", hint=f"no such task: {task_id}")
 
     try:
         dts_ref = require_dts_ref(task)
     except PreconditionError as exc:
-        return precondition_error(exc.missing, exc.hint)
+        return precondition_error(task_id, exc.missing, exc.hint)
 
     dts_text = _load_dts(ctx, task_id, dts_ref)
     result = _repair_dts(dts_text, errors=[])
@@ -2413,16 +2422,16 @@ def diff_dts(ctx: ToolContext, task_id: str, existing_dts_path: str) -> dict:
     try:
         task = ctx.task_store.get(task_id)
     except TaskNotFoundError:
-        return generic_error("task_not_found", hint=f"no such task: {task_id}")
+        return generic_error(task_id, "task_not_found", hint=f"no such task: {task_id}")
 
     try:
         dts_ref = require_dts_ref(task)
     except PreconditionError as exc:
-        return precondition_error(exc.missing, exc.hint)
+        return precondition_error(task_id, exc.missing, exc.hint)
 
     existing_path = Path(existing_dts_path)
     if not existing_path.exists():
-        return generic_error("file_not_found", hint=f"existing dts not found: {existing_dts_path}")
+        return generic_error(task_id, "file_not_found", hint=f"existing dts not found: {existing_dts_path}")
 
     generated_text = _load_dts(ctx, task_id, dts_ref)
     existing_text = existing_path.read_text(encoding="utf-8")
@@ -2439,12 +2448,12 @@ def explain_node(ctx: ToolContext, task_id: str, node_path: str) -> dict:
     try:
         task = ctx.task_store.get(task_id)
     except TaskNotFoundError:
-        return generic_error("task_not_found", hint=f"no such task: {task_id}")
+        return generic_error(task_id, "task_not_found", hint=f"no such task: {task_id}")
 
     try:
         ir_ref = require_ir_ref(task)
     except PreconditionError as exc:
-        return precondition_error(exc.missing, exc.hint)
+        return precondition_error(task_id, exc.missing, exc.hint)
 
     ir = ctx.ir_store.load(task_id, ir_ref)
     result = _explain_node(ir, node_path=node_path)
