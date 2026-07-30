@@ -37,3 +37,11 @@ def test_parse_input_combines_multiple_files(tmp_path: Path):
 
     assert len(result.pages) == 3
     assert [p.source_path for p in result.pages] == [str(pdf1), str(pdf1), str(pdf2)]
+
+
+def test_parse_input_raises_for_non_pdf_type(tmp_path: Path):
+    txt_file = tmp_path / "document.txt"
+    txt_file.write_text("This is a text file, not a PDF")
+
+    with pytest.raises(FileNotFoundError):
+        parse_input([InputFile(path=str(txt_file), type="txt")])

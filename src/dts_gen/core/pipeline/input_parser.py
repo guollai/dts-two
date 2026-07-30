@@ -24,6 +24,8 @@ class ParsedInputResult(BaseModel):
 def parse_input(files: list[InputFile]) -> ParsedInputResult:
     pages: list[PageAsset] = []
     for file in files:
+        if file.type != "pdf":
+            raise FileNotFoundError(file.path)
         path = Path(file.path)
         if not path.exists():
             raise FileNotFoundError(file.path)
