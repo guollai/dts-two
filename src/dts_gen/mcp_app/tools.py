@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import functools
+import inspect
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -88,6 +90,64 @@ def _require_dts_ref_or_error(task_id: str, task: Task) -> tuple[str | None, dic
         return None, precondition_error(task_id, exc.missing, exc.hint)
 
 
+def _extract_task_id(func, args: tuple, kwargs: dict) -> str | None:
+    try:
+        bound = inspect.signature(func).bind_partial(*args, **kwargs)
+        return bound.arguments.get("task_id")
+    except TypeError:
+        return None
+
+
+def _with_error_safety_net(func):
+    """Safety net: converts any exception that escapes a tool body into a
+    structured error dict and marks the task as failed, instead of letting it
+    propagate raw to the MCP SDK layer.
+
+    This does not replace the existing precondition-error handling inside each
+    tool (those exceptions are already caught before reaching this decorator);
+    it only catches whatever is left over (e.g. a corrupted IR file raising a
+    pydantic ValidationError deep inside IrStore.load()).
+    """
+
+    @functools.wraps(func)
+    def wrapper(ctx: ToolContext, *args, **kwargs):
+        try:
+            return func(ctx, *args, **kwargs)
+        except Exception as exc:  # noqa: BLE001 - deliberate catch-all safety net
+            task_id = _extract_task_id(func, (ctx, *args), kwargs)
+
+            task: Task | None = None
+            if task_id is not None:
+                try:
+                    task = ctx.task_store.get(task_id)
+                except Exception:
+                    task = None
+
+            if task is not None:
+                task.status = "failed"
+                task.history.append(
+                    TaskEvent(
+                        event_id=uuid.uuid4().hex[:12],
+                        tool=func.__name__,
+                        timestamp=_timestamp(),
+                        input_summary={},
+                        output_ref=None,
+                        status="error",
+                        warnings=[],
+                        error=str(exc),
+                    )
+                )
+                try:
+                    ctx.task_store.save(task)
+                except Exception:
+                    pass
+
+            return generic_error(task_id, "internal_error", hint=str(exc))
+
+    return wrapper
+
+
+@_with_error_safety_net
 def ingest_input(
     ctx: ToolContext,
     files: list[dict],
@@ -118,6 +178,7 @@ def ingest_input(
     }
 
 
+@_with_error_safety_net
 def extract_hardware_graph(
     ctx: ToolContext, task_id: str, page_range: list[int] | None = None
 ) -> dict:
@@ -130,6 +191,12 @@ def extract_hardware_graph(
     parsed = parse_input(input_files) if input_files else None
     pages = parsed.pages if parsed else []
     result = _extract_hardware_graph(pages, page_range=range_tuple)
+
+    # ExtractResult.unresolved is a sibling field of ExtractResult.ir, not part of
+    # the IR itself (result.ir.unresolved is always []). Merge it into the IR before
+    # persisting so downstream tools like explain_node (which search ir.unresolved)
+    # can find these items later.
+    result.ir.unresolved = result.ir.unresolved + result.unresolved
 
     ir_ref = ctx.ir_store.save(task_id, result.ir)
     task.ir_ref = ir_ref
@@ -161,6 +228,7 @@ def extract_hardware_graph(
     }
 
 
+@_with_error_safety_net
 def identify_soc_mapping(ctx: ToolContext, task_id: str, soc: str) -> dict:
     task, error = _get_task_or_error(ctx, task_id)
     if error is not None:
@@ -195,10 +263,11 @@ def identify_soc_mapping(ctx: ToolContext, task_id: str, soc: str) -> dict:
         "status": "mapped",
         "ir_ref": new_ir_ref,
         "mapping_report": [entry.model_dump() for entry in result.mapping_report],
-        "unresolved": [],
+        "unresolved": [item.model_dump() for item in result.ir.unresolved],
     }
 
 
+@_with_error_safety_net
 def generate_dts(ctx: ToolContext, task_id: str, scope: dict | None = None) -> dict:
     task, error = _get_task_or_error(ctx, task_id)
     if error is not None:
@@ -237,6 +306,7 @@ def generate_dts(ctx: ToolContext, task_id: str, scope: dict | None = None) -> d
     }
 
 
+@_with_error_safety_net
 def validate_dts(ctx: ToolContext, task_id: str) -> dict:
     task, error = _get_task_or_error(ctx, task_id)
     if error is not None:
@@ -273,6 +343,7 @@ def validate_dts(ctx: ToolContext, task_id: str) -> dict:
     }
 
 
+@_with_error_safety_net
 def repair_dts(ctx: ToolContext, task_id: str) -> dict:
     task, error = _get_task_or_error(ctx, task_id)
     if error is not None:
@@ -310,6 +381,7 @@ def repair_dts(ctx: ToolContext, task_id: str) -> dict:
     }
 
 
+@_with_error_safety_net
 def diff_dts(ctx: ToolContext, task_id: str, existing_dts_path: str) -> dict:
     task, error = _get_task_or_error(ctx, task_id)
     if error is not None:
@@ -334,6 +406,7 @@ def diff_dts(ctx: ToolContext, task_id: str, existing_dts_path: str) -> dict:
     }
 
 
+@_with_error_safety_net
 def explain_node(ctx: ToolContext, task_id: str, node_path: str) -> dict:
     task, error = _get_task_or_error(ctx, task_id)
     if error is not None:
