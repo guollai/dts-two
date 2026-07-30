@@ -1,0 +1,29 @@
+[project]
+name = "dts-gen"
+version = "0.1.0"
+description = "AI驱动的硬件原理图到设备树代码生成工具"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0,<3.0",
+    "PyYAML>=6.0,<7.0",
+    "pypdf>=6.0,<7.0",
+    "mcp>=2.0,<3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9.0",
+]
+
+[project.scripts]
+dts-gen = "dts_gen.cli:main"
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
