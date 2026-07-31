@@ -39,3 +39,21 @@ def test_write_sync_meta_merges_multiple_files_without_overwriting_others(tmp_pa
     meta_path = tmp_path / "sync_meta.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     assert set(meta.keys()) == {"gpio.txt", "regulator.yaml"}
+
+
+def test_write_sync_meta_recovers_from_corrupted_existing_file(tmp_path: Path):
+    meta_path = tmp_path / "sync_meta.json"
+    meta_path.write_text("{not valid json!!!", encoding="utf-8")
+
+    write_sync_meta(tmp_path, "gpio.txt", source_url="https://example.com/gpio.txt")
+
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    assert meta["gpio.txt"]["source_url"] == "https://example.com/gpio.txt"
+
+
+def test_rotate_and_write_does_not_leave_temp_files_behind(tmp_path: Path):
+    rotate_and_write(tmp_path, "gpio.txt", "first version text")
+    rotate_and_write(tmp_path, "gpio.txt", "second version text")
+
+    remaining_files = sorted(p.name for p in tmp_path.iterdir())
+    assert remaining_files == ["gpio.txt.latest", "gpio.txt.previous"]
