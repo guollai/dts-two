@@ -80,6 +80,43 @@ RULES: dict[str, list[RuleFn]] = {
 }
 
 
+def build_nodes(ir: HardwareIR) -> "tuple[list[DtsNode], list[UnresolvedItem]]":
+    nodes: dict[str, DtsNode] = {
+        comp.id: DtsNode(label=comp.id, component_id=comp.id) for comp in ir.components
+    }
+    unresolved: list[UnresolvedItem] = []
+
+    for rel in ir.relations:
+        target_id = rel.from_ if rel.kind == "phy-reference" else rel.to
+        target_node = nodes.get(target_id)
+        if target_node is None:
+            unresolved.append(
+                UnresolvedItem(
+                    field=f"relation:{rel.kind}",
+                    reason=f"目标节点 {target_id} 不存在于 components 中",
+                )
+            )
+            continue
+
+        matched = False
+        for rule_fn in RULES.get(rel.kind, []):
+            result = rule_fn(rel, ir)
+            if result is not None:
+                prop_name, prop_value = result
+                target_node.add_property(prop_name, prop_value, rule_id=rule_fn.__name__, relation=rel)
+                matched = True
+                break
+        if not matched:
+            unresolved.append(
+                UnresolvedItem(
+                    field=f"relation:{rel.kind}:{rel.property}",
+                    reason="没有匹配的规则，或缺少必要字段",
+                )
+            )
+
+    return list(nodes.values()), unresolved
+
+
 
 class GenerateResult(BaseModel):
     dts_text: str = ""

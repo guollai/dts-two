@@ -1,7 +1,8 @@
-from dts_gen.core.ir.models import HardwareIR, Relation
+from dts_gen.core.ir.models import Component, HardwareIR, Relation
 from dts_gen.core.pipeline.dts_generator import (
     RULES,
     GenerationScope,
+    build_nodes,
     generate_dts,
     parse_gpio_endpoint,
     rule_control_gpio,
@@ -146,3 +147,96 @@ def test_rules_table_maps_all_three_kinds():
     assert RULES["supply"] == [rule_supply]
     assert RULES["control"] == [rule_control_gpio]
     assert RULES["phy-reference"] == [rule_phy_reference]
+
+
+def test_build_nodes_creates_one_node_per_component():
+    ir = HardwareIR(
+        components=[
+            Component(id="usb_ctrl0", type="usb-controller", name="dwc3"),
+            Component(id="pmic_ldo3", type="regulator", name="ldo3"),
+        ],
+    )
+
+    nodes, unresolved = build_nodes(ir)
+
+    labels = sorted(n.label for n in nodes)
+    assert labels == ["pmic_ldo3", "usb_ctrl0"]
+    assert unresolved == []
+
+
+def test_build_nodes_applies_supply_rule_to_target_node():
+    ir = HardwareIR(
+        components=[
+            Component(id="usb_ctrl0", type="usb-controller", name="dwc3"),
+            Component(id="pmic_ldo3", type="regulator", name="ldo3"),
+        ],
+        relations=[
+            Relation(kind="supply", from_="pmic_ldo3", to="usb_ctrl0", property="vbus-supply"),
+        ],
+    )
+
+    nodes, unresolved = build_nodes(ir)
+
+    usb_node = next(n for n in nodes if n.label == "usb_ctrl0")
+    assert len(usb_node.properties) == 1
+    assert usb_node.properties[0].name == "vbus-supply"
+    assert usb_node.properties[0].value == "<&pmic_ldo3>"
+    assert usb_node.properties[0].rule_id == "rule_supply"
+    assert unresolved == []
+
+
+def test_build_nodes_applies_phy_reference_rule_to_from_node():
+    ir = HardwareIR(
+        components=[
+            Component(id="usb_ctrl0", type="usb-controller", name="dwc3"),
+            Component(id="usb_phy0", type="usb-phy", name="qcom-usb3-phy"),
+        ],
+        relations=[
+            Relation(kind="phy-reference", from_="usb_ctrl0", to="usb_phy0"),
+        ],
+    )
+
+    nodes, unresolved = build_nodes(ir)
+
+    ctrl_node = next(n for n in nodes if n.label == "usb_ctrl0")
+    assert ctrl_node.properties[0].name == "phys"
+    assert ctrl_node.properties[0].value == "<&usb_phy0>"
+
+
+def test_build_nodes_reports_unresolved_for_missing_target_component():
+    ir = HardwareIR(
+        components=[Component(id="pmic_ldo3", type="regulator", name="ldo3")],
+        relations=[
+            Relation(kind="supply", from_="pmic_ldo3", to="usb_ctrl0", property="vbus-supply"),
+        ],
+    )
+
+    nodes, unresolved = build_nodes(ir)
+
+    assert len(unresolved) == 1
+    assert "usb_ctrl0" in unresolved[0].reason
+
+
+def test_build_nodes_reports_unresolved_for_unmatched_rule():
+    ir = HardwareIR(
+        components=[Component(id="redriver0", type="usb-redriver", name="tusb2e11")],
+        relations=[
+            Relation(kind="control", from_="soc_tlmm:gpio23", to="redriver0", property="unknown-prop"),
+        ],
+    )
+
+    nodes, unresolved = build_nodes(ir)
+
+    assert len(unresolved) == 1
+    redriver_node = next(n for n in nodes if n.label == "redriver0")
+    assert redriver_node.properties == []
+
+
+def test_build_nodes_handles_empty_relations():
+    ir = HardwareIR(components=[Component(id="usb_ctrl0", type="usb-controller", name="dwc3")])
+
+    nodes, unresolved = build_nodes(ir)
+
+    assert len(nodes) == 1
+    assert nodes[0].properties == []
+    assert unresolved == []
