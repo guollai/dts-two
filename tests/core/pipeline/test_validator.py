@@ -5,40 +5,9 @@ from unittest.mock import patch
 from dts_gen.core.pipeline.validator import (
     check_duplicate_labels,
     check_property_syntax,
-    check_undefined_references,
-    find_defined_labels,
-    find_referenced_labels,
     run_dtc_check,
     validate_dts,
 )
-
-
-def test_find_defined_labels_extracts_label_names():
-    text = '&usb_ctrl0 {\n    status = "okay";\n};\n\n&redriver0 {\n    status = "okay";\n};'
-
-    assert find_defined_labels(text) == {"usb_ctrl0", "redriver0"}
-
-
-def test_find_referenced_labels_extracts_phandle_references():
-    text = '&usb_ctrl0 {\n    vbus-supply = <&pmic_ldo3>;\n};'
-
-    assert find_referenced_labels(text) == {"pmic_ldo3"}
-
-
-def test_check_undefined_references_reports_missing_target():
-    text = '&usb_ctrl0 {\n    vbus-supply = <&pmic_ldo3>;\n};'
-
-    errors = check_undefined_references(text)
-
-    assert len(errors) == 1
-    assert "pmic_ldo3" in errors[0].message
-    assert errors[0].severity == "error"
-
-
-def test_check_undefined_references_passes_when_target_defined():
-    text = '&usb_ctrl0 {\n    vbus-supply = <&pmic_ldo3>;\n};\n\n&pmic_ldo3 {\n    status = "okay";\n};'
-
-    assert check_undefined_references(text) == []
 
 
 def test_check_property_syntax_reports_missing_angle_brackets():
@@ -81,7 +50,7 @@ def test_check_duplicate_labels_passes_for_unique_labels():
 
 
 def test_validate_dts_returns_no_errors_for_well_formed_text():
-    text = '&usb_ctrl0 {\n    status = "okay";\n    vbus-supply = <&pmic_ldo3>;\n};\n\n&pmic_ldo3 {\n    status = "okay";\n};'
+    text = '&usb_ctrl0 {\n    status = "okay";\n    vbus-supply = <&pmic_ldo3>;\n};'
 
     with patch.object(shutil, "which", return_value=None):
         result = validate_dts(text)
@@ -119,7 +88,6 @@ def test_validate_dts_aggregates_multiple_error_types():
         result = validate_dts(text)
 
     messages = [e.message for e in result.errors]
-    assert any("pmic_ldo3" in m for m in messages)
     assert any("status" in m for m in messages)
     assert any("usb_ctrl0" in m and "重复" in m for m in messages)
 

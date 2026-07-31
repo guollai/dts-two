@@ -11,30 +11,12 @@ from pydantic import BaseModel, Field
 from dts_gen.core.pipeline.base import DtsError
 
 _LABEL_DEF_RE = re.compile(r"&(\w+)\s*\{")
-_LABEL_REF_RE = re.compile(r"<\s*&(\w+)")
 _PROP_LINE_RE = re.compile(r"^\s*([\w,-]+)\s*=\s*(.+);\s*$")
 
 
 class ValidateResult(BaseModel):
     errors: list[DtsError] = Field(default_factory=list)
     warnings: list[DtsError] = Field(default_factory=list)
-
-
-def find_defined_labels(text: str) -> set[str]:
-    return set(_LABEL_DEF_RE.findall(text))
-
-
-def find_referenced_labels(text: str) -> set[str]:
-    return set(_LABEL_REF_RE.findall(text))
-
-
-def check_undefined_references(text: str) -> list[DtsError]:
-    defined = find_defined_labels(text)
-    referenced = find_referenced_labels(text)
-    return [
-        DtsError(message=f"引用的节点 &{label} 未定义", node=None, severity="error")
-        for label in sorted(referenced - defined)
-    ]
 
 
 def check_property_syntax(text: str) -> list[DtsError]:
@@ -68,7 +50,6 @@ def check_duplicate_labels(text: str) -> list[DtsError]:
 
 def validate_dts(dts_text: str, target_platform: str | None = None) -> ValidateResult:
     errors: list[DtsError] = []
-    errors += check_undefined_references(dts_text)
     errors += check_property_syntax(dts_text)
     errors += check_duplicate_labels(dts_text)
 
