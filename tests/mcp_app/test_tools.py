@@ -276,3 +276,12 @@ def test_generate_dts_reports_unresolved_relation_targets(ctx, tmp_path: Path):
     result = tools.generate_dts(ctx, task_id=task_id)
 
     assert len(result["unresolved"]) == 1
+
+
+def test_sync_bindings_returns_reports_list_without_task_id(ctx):
+    result = tools.sync_bindings(ctx)
+
+    assert "task_id" not in result
+    assert "reports" in result
+    assert isinstance(result["reports"], list)
+    assert len(result["reports"]) > 0

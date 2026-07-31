@@ -47,6 +47,10 @@ def build_server(base_dir: Path) -> MCPServer:
     def explain_node(task_id: str, node_path: str) -> dict:
         return tools.explain_node(tool_ctx, task_id=task_id, node_path=node_path)
 
+    @server.tool()
+    def sync_bindings() -> dict:
+        return tools.sync_bindings(tool_ctx)
+
     @server.resource("soc://{soc}/dtsi/main")
     def soc_dtsi_resource(soc: str) -> dict:
         return knowledge.read_soc_dtsi(knowledge_ctx, soc=soc)

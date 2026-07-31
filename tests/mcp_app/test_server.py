@@ -4,7 +4,7 @@ from pathlib import Path
 from dts_gen.mcp_app.server import build_server
 
 
-def test_server_registers_all_eight_tools(tmp_path: Path):
+def test_server_registers_all_nine_tools(tmp_path: Path):
     server = build_server(base_dir=tmp_path)
 
     tools = asyncio.run(server.list_tools())
@@ -19,6 +19,7 @@ def test_server_registers_all_eight_tools(tmp_path: Path):
         "repair_dts",
         "diff_dts",
         "explain_node",
+        "sync_bindings",
     }
 
 
