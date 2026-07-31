@@ -70,6 +70,8 @@ def rule_control_gpio(rel: Relation, ir: HardwareIR) -> "tuple[str, str] | None"
 def rule_phy_reference(rel: Relation, ir: HardwareIR) -> "tuple[str, str] | None":
     if rel.kind != "phy-reference":
         return None
+    if rel.to is None:
+        return None
     return ("phys", f"<&{rel.to}>")
 
 

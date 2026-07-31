@@ -142,6 +142,13 @@ def test_rule_phy_reference_returns_none_for_wrong_kind():
     assert rule_phy_reference(rel, ir) is None
 
 
+def test_rule_phy_reference_returns_none_when_to_missing():
+    rel = Relation(kind="phy-reference", from_="usb_ctrl0")
+    ir = HardwareIR()
+
+    assert rule_phy_reference(rel, ir) is None
+
+
 def test_rules_table_maps_all_three_kinds():
     assert set(RULES.keys()) == {"supply", "control", "phy-reference"}
     assert RULES["supply"] == [rule_supply]
@@ -230,6 +237,19 @@ def test_build_nodes_reports_unresolved_for_unmatched_rule():
     assert len(unresolved) == 1
     redriver_node = next(n for n in nodes if n.label == "redriver0")
     assert redriver_node.properties == []
+
+
+def test_build_nodes_reports_unresolved_for_phy_reference_missing_to():
+    ir = HardwareIR(
+        components=[Component(id="usb_ctrl0", type="usb-controller", name="dwc3")],
+        relations=[Relation(kind="phy-reference", from_="usb_ctrl0")],
+    )
+
+    nodes, unresolved = build_nodes(ir)
+
+    assert len(unresolved) == 1
+    ctrl_node = next(n for n in nodes if n.label == "usb_ctrl0")
+    assert ctrl_node.properties == []
 
 
 def test_build_nodes_handles_empty_relations():
