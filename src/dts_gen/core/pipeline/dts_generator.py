@@ -119,11 +119,34 @@ def build_nodes(ir: HardwareIR) -> "tuple[list[DtsNode], list[UnresolvedItem]]":
     return list(nodes.values()), unresolved
 
 
+def serialize_node(node: DtsNode, indent: str = "    ") -> str:
+    lines = [f"&{node.label} {{", f'{indent}status = "okay";']
+    for prop in node.properties:
+        lines.append(f"{indent}{prop.name} = {prop.value};")
+    lines.append("};")
+    return "\n".join(lines)
+
+
+def serialize_dts(nodes: list[DtsNode]) -> str:
+    return "\n\n".join(serialize_node(n) for n in nodes if n.properties)
+
+
+def build_node_sources(nodes: list[DtsNode]) -> list[NodeSourceRef]:
+    return [
+        NodeSourceRef(node=f"&{node.label}", component_id=node.component_id, rule_id=prop.rule_id)
+        for node in nodes
+        for prop in node.properties
+    ]
+
 
 class GenerateResult(BaseModel):
     dts_text: str = ""
     node_sources: list[NodeSourceRef] = Field(default_factory=list)
+    unresolved: list[UnresolvedItem] = Field(default_factory=list)
 
 
 def generate_dts(ir: HardwareIR, board: str | None, scope: GenerationScope) -> GenerateResult:
-    return GenerateResult(dts_text="", node_sources=[])
+    nodes, unresolved = build_nodes(ir)
+    dts_text = serialize_dts(nodes)
+    node_sources = build_node_sources(nodes)
+    return GenerateResult(dts_text=dts_text, node_sources=node_sources, unresolved=unresolved)

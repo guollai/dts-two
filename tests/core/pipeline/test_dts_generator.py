@@ -1,23 +1,28 @@
 from dts_gen.core.ir.models import Component, HardwareIR, Relation
 from dts_gen.core.pipeline.dts_generator import (
     RULES,
+    DtsNode,
     GenerationScope,
+    build_node_sources,
     build_nodes,
     generate_dts,
     parse_gpio_endpoint,
     rule_control_gpio,
     rule_phy_reference,
     rule_supply,
+    serialize_dts,
+    serialize_node,
 )
 
 
-def test_generate_dts_returns_empty_text_when_not_implemented():
+def test_generate_dts_returns_empty_text_for_ir_without_components():
     ir = HardwareIR(board="board-x", soc="sa8775p")
 
     result = generate_dts(ir, board="board-x", scope=GenerationScope())
 
     assert result.dts_text == ""
     assert result.node_sources == []
+    assert result.unresolved == []
 
 
 def test_generation_scope_defaults_subsystem_to_none():
@@ -260,3 +265,86 @@ def test_build_nodes_handles_empty_relations():
     assert len(nodes) == 1
     assert nodes[0].properties == []
     assert unresolved == []
+
+
+def test_serialize_node_skips_nodes_without_properties():
+    node = DtsNode(label="pmic_ldo3", component_id="pmic_ldo3")
+
+    assert serialize_dts([node]) == ""
+
+
+def test_serialize_node_renders_status_and_properties():
+    node = DtsNode(label="usb_ctrl0", component_id="usb_ctrl0")
+    node.add_property("vbus-supply", "<&pmic_ldo3>", rule_id="rule_supply")
+
+    text = serialize_node(node)
+
+    assert text == '&usb_ctrl0 {\n    status = "okay";\n    vbus-supply = <&pmic_ldo3>;\n};'
+
+
+def test_serialize_dts_joins_multiple_nodes_with_blank_line():
+    node_a = DtsNode(label="usb_ctrl0", component_id="usb_ctrl0")
+    node_a.add_property("vbus-supply", "<&pmic_ldo3>", rule_id="rule_supply")
+    node_b = DtsNode(label="redriver0", component_id="redriver0")
+    node_b.add_property("enable-gpios", "<&soc_tlmm 23 GPIO_ACTIVE_HIGH>", rule_id="rule_control_gpio")
+
+    text = serialize_dts([node_a, node_b])
+
+    assert "\n\n" in text
+    assert text.count("&usb_ctrl0") == 1
+    assert text.count("&redriver0") == 1
+
+
+def test_build_node_sources_extracts_rule_id_and_component_id():
+    node = DtsNode(label="usb_ctrl0", component_id="usb_ctrl0")
+    node.add_property("vbus-supply", "<&pmic_ldo3>", rule_id="rule_supply")
+
+    sources = build_node_sources([node])
+
+    assert len(sources) == 1
+    assert sources[0].node == "&usb_ctrl0"
+    assert sources[0].component_id == "usb_ctrl0"
+    assert sources[0].rule_id == "rule_supply"
+
+
+def test_generate_dts_end_to_end_usb_topology():
+    ir = HardwareIR(
+        board="hamoa-evb", soc="hamoa",
+        components=[
+            Component(id="usb_ctrl0", type="usb-controller", name="dwc3"),
+            Component(id="usb_phy0", type="usb-phy", name="qcom-usb3-phy"),
+            Component(id="redriver0", type="usb-redriver", name="tusb2e11"),
+            Component(id="connector0", type="usb-connector", name="typec"),
+            Component(id="pmic_ldo3", type="regulator", name="ldo3"),
+        ],
+        relations=[
+            Relation(kind="supply", from_="pmic_ldo3", to="usb_ctrl0", property="vbus-supply"),
+            Relation(kind="control", from_="soc_tlmm:gpio23", to="redriver0", property="enable-gpios", active="high"),
+            Relation(kind="phy-reference", from_="usb_ctrl0", to="usb_phy0"),
+        ],
+    )
+
+    result = generate_dts(ir, board="hamoa-evb", scope=GenerationScope())
+
+    assert "&usb_ctrl0" in result.dts_text
+    assert "vbus-supply = <&pmic_ldo3>;" in result.dts_text
+    assert "phys = <&usb_phy0>;" in result.dts_text
+    assert "&redriver0" in result.dts_text
+    assert "enable-gpios = <&soc_tlmm 23 GPIO_ACTIVE_HIGH>;" in result.dts_text
+    assert "&usb_phy0 {" not in result.dts_text
+    assert "&connector0" not in result.dts_text
+    assert "&pmic_ldo3 {" not in result.dts_text
+    assert len(result.node_sources) == 3
+    assert result.unresolved == []
+
+
+def test_generate_dts_returns_unresolved_when_relation_target_missing():
+    ir = HardwareIR(
+        components=[Component(id="pmic_ldo3", type="regulator", name="ldo3")],
+        relations=[Relation(kind="supply", from_="pmic_ldo3", to="usb_ctrl0", property="vbus-supply")],
+    )
+
+    result = generate_dts(ir, board=None, scope=GenerationScope())
+
+    assert result.dts_text == ""
+    assert len(result.unresolved) == 1
