@@ -23,6 +23,7 @@ def build_diff_report(old_text: str | None, new_text: str, filename: str) -> Dif
             new_text.splitlines(),
             fromfile=f"{filename} (previous)",
             tofile=f"{filename} (latest)",
+            lineterm="",
         )
     )
     return DiffReport(filename=filename, diff=diff_text or None, has_changes=bool(diff_text))

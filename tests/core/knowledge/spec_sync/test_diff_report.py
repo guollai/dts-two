@@ -30,3 +30,12 @@ def test_diff_report_defaults_fetch_error_to_none():
 
     assert report.fetch_error is None
     assert report.first_sync is False
+
+
+def test_build_diff_report_diff_has_no_blank_lines_after_headers():
+    report = build_diff_report("line one\nline two\n", "line one\nline three\n", "gpio.txt")
+
+    lines = report.diff.splitlines()
+    assert lines[0] == "--- gpio.txt (previous)"
+    assert lines[1] == "+++ gpio.txt (latest)"
+    assert lines[2].startswith("@@")
