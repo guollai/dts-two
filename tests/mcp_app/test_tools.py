@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from dts_gen.core.ir.models import Component, HardwareIR, Relation
 from dts_gen.mcp_app import tools
 from tests.fixtures.make_pdf import make_minimal_pdf
 
@@ -241,3 +242,37 @@ def test_explain_node_finds_extraction_unresolved_marker_without_mapping(ctx, tm
 
     assert len(result["unresolved"]) == 1
     assert "not implemented" in result["unresolved"][0]["reason"].lower()
+
+
+def test_generate_dts_includes_unresolved_field_in_output(ctx, tmp_path: Path):
+    pdf_path = tmp_path / "schematic.pdf"
+    make_minimal_pdf(pdf_path, pages=1)
+    created = tools.ingest_input(ctx, files=[{"path": str(pdf_path), "type": "pdf"}], project="p")
+    task_id = created["task_id"]
+    tools.extract_hardware_graph(ctx, task_id=task_id)
+
+    result = tools.generate_dts(ctx, task_id=task_id)
+
+    assert "unresolved" in result
+    assert result["unresolved"] == []
+
+
+def test_generate_dts_reports_unresolved_relation_targets(ctx, tmp_path: Path):
+    pdf_path = tmp_path / "schematic.pdf"
+    make_minimal_pdf(pdf_path, pages=1)
+    created = tools.ingest_input(ctx, files=[{"path": str(pdf_path), "type": "pdf"}], project="p")
+    task_id = created["task_id"]
+
+    ir = HardwareIR(
+        components=[Component(id="pmic_ldo3", type="regulator", name="ldo3")],
+        relations=[Relation(kind="supply", from_="pmic_ldo3", to="usb_ctrl0", property="vbus-supply")],
+    )
+    ctx.ir_store.save(task_id, ir)
+    task = ctx.task_store.get(task_id)
+    task.ir_ref = ctx.ir_store.latest_ref(task_id)
+    task.status = "extracted"
+    ctx.task_store.save(task)
+
+    result = tools.generate_dts(ctx, task_id=task_id)
+
+    assert len(result["unresolved"]) == 1

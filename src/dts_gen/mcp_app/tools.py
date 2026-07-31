@@ -303,6 +303,7 @@ def generate_dts(ctx: ToolContext, task_id: str, scope: dict | None = None) -> d
         "dts_ref": dts_ref,
         "dts_text": result.dts_text,
         "node_sources": [ref.model_dump() for ref in result.node_sources],
+        "unresolved": [item.model_dump() for item in result.unresolved],
     }
 
 
