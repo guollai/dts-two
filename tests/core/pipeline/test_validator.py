@@ -1,4 +1,5 @@
 import shutil
+import subprocess
 from unittest.mock import patch
 
 from dts_gen.core.pipeline.validator import (
@@ -7,6 +8,7 @@ from dts_gen.core.pipeline.validator import (
     check_undefined_references,
     find_defined_labels,
     find_referenced_labels,
+    run_dtc_check,
     validate_dts,
 )
 
@@ -120,3 +122,33 @@ def test_validate_dts_aggregates_multiple_error_types():
     assert any("pmic_ldo3" in m for m in messages)
     assert any("status" in m for m in messages)
     assert any("usb_ctrl0" in m and "重复" in m for m in messages)
+
+
+def test_validate_dts_calls_run_dtc_check_when_dtc_available():
+    with patch.object(shutil, "which", return_value="/usr/bin/dtc"):
+        with patch(
+            "dts_gen.core.pipeline.validator.run_dtc_check", return_value=[]
+        ) as mock_check:
+            result = validate_dts('&usb_ctrl0 { status = "okay"; };')
+
+    mock_check.assert_called_once()
+    assert result.warnings == []
+
+
+def test_run_dtc_check_returns_empty_list_on_success():
+    fake_result = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+    with patch("subprocess.run", return_value=fake_result):
+        errors = run_dtc_check('&usb_ctrl0 { status = "okay"; };')
+
+    assert errors == []
+
+
+def test_run_dtc_check_parses_stderr_lines_into_errors_on_failure():
+    fake_result = subprocess.CompletedProcess(
+        args=[], returncode=1, stdout="", stderr="ERROR: line 3: syntax error\n"
+    )
+    with patch("subprocess.run", return_value=fake_result):
+        errors = run_dtc_check("garbage input")
+
+    assert len(errors) == 1
+    assert "syntax error" in errors[0].message

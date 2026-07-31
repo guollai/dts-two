@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import re
 import shutil
+import subprocess
 from collections import Counter
 
 from pydantic import BaseModel, Field
@@ -73,5 +75,24 @@ def validate_dts(dts_text: str, target_platform: str | None = None) -> ValidateR
     warnings: list[DtsError] = []
     if shutil.which("dtc") is None:
         warnings.append(DtsError(message="dtc 未安装，跳过语法级编译校验", severity="warning"))
+    else:
+        errors += run_dtc_check(dts_text)
 
     return ValidateResult(errors=errors, warnings=warnings)
+
+
+def run_dtc_check(dts_text: str) -> list[DtsError]:
+    result = subprocess.run(
+        ["dtc", "-O", "dtb", "-o", os.devnull, "-"],
+        input=dts_text,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if result.returncode == 0:
+        return []
+    return [
+        DtsError(message=line.strip(), severity="error")
+        for line in result.stderr.splitlines()
+        if line.strip()
+    ]
