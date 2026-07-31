@@ -26,7 +26,7 @@ IR (JSON, 手工/测试构造，覆盖5类component + 3类relation)
        ├─ serialize_dts(nodes): 序列化器，跳过无属性节点
        └─ build_node_sources(nodes): 从DtsNode.properties提取rule_id/component_id
   → validator (本次核心工作)
-       └─ 三条内部结构校验：phandle引用存在性 / 属性值语法形式 / 重复label检测
+       └─ 两条内部结构校验：属性值语法形式 / 重复label检测
           (若检测到本机有dtc，额外跑一次dtc语法校验；没有则跳过+提示)
 ```
 
@@ -233,29 +233,13 @@ def generate_dts(ir: HardwareIR, board: str | None, scope: GenerationScope) -> G
 
 `generate_dts` 工具函数的返回字典新增 `unresolved` 字段（`[item.model_dump() for item in result.unresolved]`），与 `extract_hardware_graph`/`identify_soc_mapping` 保持一致风格。这些 `unresolved` 项**不**合并写回 IR 文件——它们是"生成阶段发现的"，不是 IR 本身的问题，`explain_node` 本次不负责查找这类 unresolved。
 
-## 四、`validator.py` 内部设计——三条内部结构校验
+## 四、`validator.py` 内部设计——两条内部结构校验
 
 无真实 `dtc`/binding yaml 数据可用，只能做"生成文本内部是否自相一致"级别的语法检查，不做 schema 校验或平台规则校验（这两层在设计方案中明确依赖外部知识库，留给后续任务）。
 
-### 4.1 检查 1：phandle 引用存在性
+**修订说明（实施阶段发现并移除的第三条检查）**：最初设计包含"phandle 引用存在性"检查（`check_undefined_references`），扫描全文，要求任何 `<&label>` 引用的 `label` 都必须在同一份文本内有 `&label { ... };` 定义。但这与生成器的核心设计直接矛盾——生成器按"board 层 patch"风格输出（3.4.1 节及本文档第三节），故意不为 regulator/PHY/GPIO controller 等 SoC 固定资源生成定义块，只通过 phandle 引用它们（真实 Linux 内核 board dts 同样是这种写法，定义体在被 include 的平台 dtsi 里）。这导致任何正常生成的 DTS 输出都会被这条检查误报为 error。Task 15 端到端验证时发现此问题，已确认移除该检查（及其专用辅助函数 `find_defined_labels`/`find_referenced_labels`），validator 现在只保留以下两条检查。
 
-```python
-def find_defined_labels(text: str) -> set[str]:
-    return set(re.findall(r"&(\w+)\s*\{", text))
-
-def find_referenced_labels(text: str) -> set[str]:
-    return set(re.findall(r"<\s*&(\w+)", text))
-
-def check_undefined_references(text: str) -> list[DtsError]:
-    defined = find_defined_labels(text)
-    referenced = find_referenced_labels(text)
-    return [
-        DtsError(message=f"引用的节点 &{label} 未定义", node=None, severity="error")
-        for label in sorted(referenced - defined)
-    ]
-```
-
-### 4.2 检查 2：属性值语法形式
+### 4.1 检查 1：属性值语法形式
 
 ```python
 PROP_LINE = re.compile(r'^\s*([\w,-]+)\s*=\s*(.+);\s*$')
@@ -277,7 +261,7 @@ def check_property_syntax(text: str) -> list[DtsError]:
 
 范围有限：只覆盖"引用漏 `<>`"和"status 常见值漏引号"两种规则引擎自身可能犯的错，不是通用 DTS 语法解析器。
 
-### 4.3 检查 3：重复 label 检测
+### 4.2 检查 2：重复 label 检测
 
 ```python
 def check_duplicate_labels(text: str) -> list[DtsError]:
@@ -289,12 +273,11 @@ def check_duplicate_labels(text: str) -> list[DtsError]:
     ]
 ```
 
-### 4.4 组装与 dtc 可选叠加
+### 4.3 组装与 dtc 可选叠加
 
 ```python
 def validate_dts(dts_text: str, target_platform: str | None = None) -> ValidateResult:
     errors = []
-    errors += check_undefined_references(dts_text)
     errors += check_property_syntax(dts_text)
     errors += check_duplicate_labels(dts_text)
 
@@ -328,7 +311,7 @@ def run_dtc_check(dts_text: str) -> list[DtsError]:
     ]
 ```
 
-若 `dts_text` 为空字符串（IR 无可用 relation 时的合法结果），三条检查均自然返回空列表，不报错。
+若 `dts_text` 为空字符串（IR 无可用 relation 时的合法结果），两条检查均自然返回空列表，不报错。
 
 ## 五、规范/Binding 同步机制
 
@@ -515,7 +498,7 @@ IR 输入：
 验证点：
 1. `generate_dts` → `dts_text` 含 `&usb_ctrl0`（带 `vbus-supply` + `phys`）和 `&redriver0`（带 `enable-gpios`），**不含** `&usb_phy0`/`&connector0`/`&pmic_ldo3`（无属性节点不输出）
 2. `node_sources` 长度为 3，每条含正确 `rule_id`/`component_id`
-3. `validate_dts` 对该输出运行三条校验 → 0 errors
+3. `validate_dts` 对该输出运行两条校验 → 0 errors
 4. `unresolved` 为空列表
 
 ### 6.2 单元测试覆盖范围
@@ -523,7 +506,7 @@ IR 输入：
 - **规则函数**：`rule_supply`/`rule_control_gpio`/`rule_phy_reference` 各自的正例 + 反例（如 `control` 的 `from` 格式错误 → 返回 `None`）
 - **`build_nodes`**：relation 目标节点不存在 → 产出对应 `UnresolvedItem`；relations 为空 → 返回全部无属性节点、`unresolved` 为空
 - **`serialize_dts`**：无属性节点被跳过；多节点间以空行分隔
-- **`validator.py` 三个检查函数**：各自的正例（无错误）+ 反例（手工构造含未定义引用/漏引号/重复 label 的 DTS 文本）单元测试
+- **`validator.py` 两个检查函数**：各自的正例（无错误）+ 反例（手工构造含漏引号/重复 label 的 DTS 文本）单元测试
 - **`tools.py`**：`generate_dts` 工具函数输出新增 `unresolved` 字段的序列化正确性
 - **`spec_sync` 模块**（真实网络，不 mock；本机已验证 `requests` 库可正常访问 `raw.githubusercontent.com`/`api.github.com`，即使 `curl`/裸 TLS 因 Windows Schannel 证书吊销校验失败也不受影响）：
   - `fetcher.fetch()`：对 3 个内核 binding 真实 URL 发起真实 HTTP GET，验证返回内容非空且状态码 200
