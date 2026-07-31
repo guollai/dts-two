@@ -67,6 +67,19 @@ def rule_control_gpio(rel: Relation, ir: HardwareIR) -> "tuple[str, str] | None"
     return (rel.property, f"<&{controller} {pin} {flag}>")
 
 
+def rule_phy_reference(rel: Relation, ir: HardwareIR) -> "tuple[str, str] | None":
+    if rel.kind != "phy-reference":
+        return None
+    return ("phys", f"<&{rel.to}>")
+
+
+RULES: dict[str, list[RuleFn]] = {
+    "supply": [rule_supply],
+    "control": [rule_control_gpio],
+    "phy-reference": [rule_phy_reference],
+}
+
+
 
 class GenerateResult(BaseModel):
     dts_text: str = ""

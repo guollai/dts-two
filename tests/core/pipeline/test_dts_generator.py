@@ -1,9 +1,11 @@
 from dts_gen.core.ir.models import HardwareIR, Relation
 from dts_gen.core.pipeline.dts_generator import (
+    RULES,
     GenerationScope,
     generate_dts,
     parse_gpio_endpoint,
     rule_control_gpio,
+    rule_phy_reference,
     rule_supply,
 )
 
@@ -121,3 +123,26 @@ def test_rule_control_gpio_returns_none_for_missing_active():
     ir = HardwareIR()
 
     assert rule_control_gpio(rel, ir) is None
+
+
+def test_rule_phy_reference_returns_phys_property():
+    rel = Relation(kind="phy-reference", from_="redriver0", to="usb_phy0")
+    ir = HardwareIR()
+
+    result = rule_phy_reference(rel, ir)
+
+    assert result == ("phys", "<&usb_phy0>")
+
+
+def test_rule_phy_reference_returns_none_for_wrong_kind():
+    rel = Relation(kind="supply", from_="redriver0", to="usb_phy0")
+    ir = HardwareIR()
+
+    assert rule_phy_reference(rel, ir) is None
+
+
+def test_rules_table_maps_all_three_kinds():
+    assert set(RULES.keys()) == {"supply", "control", "phy-reference"}
+    assert RULES["supply"] == [rule_supply]
+    assert RULES["control"] == [rule_control_gpio]
+    assert RULES["phy-reference"] == [rule_phy_reference]
