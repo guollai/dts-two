@@ -36,7 +36,14 @@ def list_rst_files(api_url: str) -> list[TrackedFile]:
     if response.status_code != 200:
         raise FetchError(api_url, f"HTTP {response.status_code}")
 
-    entries = response.json()
+    try:
+        entries = response.json()
+    except ValueError as exc:
+        raise FetchError(api_url, f"invalid JSON response: {exc}") from exc
+
+    if not isinstance(entries, list):
+        raise FetchError(api_url, "expected a list of directory entries, got a different JSON shape")
+
     return [
         TrackedFile(filename=entry["name"], source_url=entry["download_url"])
         for entry in entries
