@@ -1,5 +1,11 @@
 from dts_gen.core.ir.models import HardwareIR, Relation
-from dts_gen.core.pipeline.dts_generator import GenerationScope, generate_dts, rule_supply
+from dts_gen.core.pipeline.dts_generator import (
+    GenerationScope,
+    generate_dts,
+    parse_gpio_endpoint,
+    rule_control_gpio,
+    rule_supply,
+)
 
 
 def test_generate_dts_returns_empty_text_when_not_implemented():
@@ -38,3 +44,80 @@ def test_rule_supply_returns_none_when_from_missing():
     ir = HardwareIR()
 
     assert rule_supply(rel, ir) is None
+
+
+def test_parse_gpio_endpoint_extracts_controller_and_pin():
+    assert parse_gpio_endpoint("soc_tlmm:gpio23") == ("soc_tlmm", 23)
+
+
+def test_parse_gpio_endpoint_returns_none_for_malformed_string():
+    assert parse_gpio_endpoint("soc_tlmm-gpio23") is None
+    assert parse_gpio_endpoint(None) is None
+
+
+def test_rule_control_gpio_returns_active_high_reference():
+    rel = Relation(
+        kind="control",
+        from_="soc_tlmm:gpio23",
+        to="redriver0",
+        property="enable-gpios",
+        active="high",
+    )
+    ir = HardwareIR()
+
+    result = rule_control_gpio(rel, ir)
+
+    assert result == ("enable-gpios", "<&soc_tlmm 23 GPIO_ACTIVE_HIGH>")
+
+
+def test_rule_control_gpio_returns_active_low_reference():
+    rel = Relation(
+        kind="control",
+        from_="soc_tlmm:gpio5",
+        to="redriver0",
+        property="reset-gpios",
+        active="low",
+    )
+    ir = HardwareIR()
+
+    result = rule_control_gpio(rel, ir)
+
+    assert result == ("reset-gpios", "<&soc_tlmm 5 GPIO_ACTIVE_LOW>")
+
+
+def test_rule_control_gpio_returns_none_for_unknown_property():
+    rel = Relation(
+        kind="control",
+        from_="soc_tlmm:gpio23",
+        to="redriver0",
+        property="unknown-prop",
+        active="high",
+    )
+    ir = HardwareIR()
+
+    assert rule_control_gpio(rel, ir) is None
+
+
+def test_rule_control_gpio_returns_none_for_malformed_from_endpoint():
+    rel = Relation(
+        kind="control",
+        from_="soc_tlmm-gpio23",
+        to="redriver0",
+        property="enable-gpios",
+        active="high",
+    )
+    ir = HardwareIR()
+
+    assert rule_control_gpio(rel, ir) is None
+
+
+def test_rule_control_gpio_returns_none_for_missing_active():
+    rel = Relation(
+        kind="control",
+        from_="soc_tlmm:gpio23",
+        to="redriver0",
+        property="enable-gpios",
+    )
+    ir = HardwareIR()
+
+    assert rule_control_gpio(rel, ir) is None
