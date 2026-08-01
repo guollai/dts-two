@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from dts_gen.core.ir.store import IrStore
-from dts_gen.core.knowledge.spec_sync.sync import sync_bindings as _sync_bindings
+from dts_gen.core.knowledge.spec_sync.sync import spec_sync_cache_dir, sync_bindings as _sync_bindings
 from dts_gen.core.pipeline.dts_generator import GenerationScope, generate_dts as _generate_dts
 from dts_gen.core.pipeline.differ import diff_dts as _diff_dts
 from dts_gen.core.pipeline.explainer import explain_node as _explain_node
@@ -430,6 +430,6 @@ def explain_node(ctx: ToolContext, task_id: str, node_path: str) -> dict:
 
 
 def sync_bindings(ctx: ToolContext) -> dict:
-    cache_dir = ctx.dts_dir.parent / "knowledge" / "data" / "dt_spec"
+    cache_dir = spec_sync_cache_dir(ctx.dts_dir.parent)
     reports = _sync_bindings(cache_dir)
     return {"reports": [report.model_dump() for report in reports]}

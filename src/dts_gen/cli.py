@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 from dts_gen.core.knowledge.spec_sync.diff_report import DiffReport
-from dts_gen.core.knowledge.spec_sync.sync import sync_bindings as run_sync_bindings
+from dts_gen.core.knowledge.spec_sync.sync import spec_sync_cache_dir, sync_bindings as run_sync_bindings
 from dts_gen.mcp_app.server import main as run_server
 
 
@@ -21,7 +21,7 @@ def _print_report(report: DiffReport) -> None:
 
 
 def _sync_bindings_command() -> None:
-    cache_dir = Path.cwd() / ".dts-gen" / "knowledge" / "data" / "dt_spec"
+    cache_dir = spec_sync_cache_dir(Path.cwd() / ".dts-gen")
     reports = run_sync_bindings(cache_dir)
     for report in reports:
         _print_report(report)

@@ -83,6 +83,7 @@ RULES: dict[str, list[RuleFn]] = {
 
 
 def build_nodes(ir: HardwareIR) -> "tuple[list[DtsNode], list[UnresolvedItem]]":
+    known_component_ids = {comp.id for comp in ir.components}
     nodes: dict[str, DtsNode] = {
         comp.id: DtsNode(label=comp.id, component_id=comp.id) for comp in ir.components
     }
@@ -104,6 +105,27 @@ def build_nodes(ir: HardwareIR) -> "tuple[list[DtsNode], list[UnresolvedItem]]":
         for rule_fn in RULES.get(rel.kind, []):
             result = rule_fn(rel, ir)
             if result is not None:
+                # The rule matched and produced a property, but for rules that
+                # embed a phandle to *another* component (not the target node
+                # itself), verify that referenced component actually exists.
+                # Otherwise we'd silently emit a dangling `<&...>` reference,
+                # violating the "never fabricate, flag as unresolved" principle.
+                referenced_id = None
+                if rule_fn is rule_supply:
+                    referenced_id = rel.from_
+                elif rule_fn is rule_phy_reference:
+                    referenced_id = rel.to
+
+                if referenced_id is not None and referenced_id not in known_component_ids:
+                    unresolved.append(
+                        UnresolvedItem(
+                            field=f"relation:{rel.kind}:{rel.property}",
+                            reason=f"引用的节点 {referenced_id} 不存在于 components 中",
+                        )
+                    )
+                    matched = True
+                    break
+
                 prop_name, prop_value = result
                 target_node.add_property(prop_name, prop_value, rule_id=rule_fn.__name__, relation=rel)
                 matched = True

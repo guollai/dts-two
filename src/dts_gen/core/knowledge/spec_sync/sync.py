@@ -24,6 +24,10 @@ KERNEL_BINDING_FILES: list[TrackedFile] = [
 DT_SPEC_CONTENTS_API_URL = "https://api.github.com/repos/devicetree-org/devicetree-specification/contents/source"
 
 
+def spec_sync_cache_dir(base_dir: Path) -> Path:
+    return base_dir / "knowledge" / "data" / "dt_spec"
+
+
 def sync_bindings(cache_dir: Path) -> list[DiffReport]:
     try:
         dt_spec_files = list_rst_files(DT_SPEC_CONTENTS_API_URL)

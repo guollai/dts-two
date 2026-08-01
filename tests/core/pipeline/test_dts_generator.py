@@ -257,6 +257,58 @@ def test_build_nodes_reports_unresolved_for_phy_reference_missing_to():
     assert ctrl_node.properties == []
 
 
+def test_build_nodes_reports_unresolved_for_supply_with_nonexistent_regulator():
+    ir = HardwareIR(
+        components=[Component(id="usb_ctrl0", type="usb-controller", name="dwc3")],
+        relations=[
+            Relation(kind="supply", from_="typo_regulator", to="usb_ctrl0", property="vbus-supply"),
+        ],
+    )
+
+    nodes, unresolved = build_nodes(ir)
+
+    assert len(unresolved) == 1
+    usb_node = next(n for n in nodes if n.label == "usb_ctrl0")
+    assert usb_node.properties == []
+
+
+def test_build_nodes_reports_unresolved_for_phy_reference_with_nonexistent_phy():
+    ir = HardwareIR(
+        components=[Component(id="usb_ctrl0", type="usb-controller", name="dwc3")],
+        relations=[
+            Relation(kind="phy-reference", from_="usb_ctrl0", to="usb_phy_nonexistent"),
+        ],
+    )
+
+    nodes, unresolved = build_nodes(ir)
+
+    assert len(unresolved) == 1
+    ctrl_node = next(n for n in nodes if n.label == "usb_ctrl0")
+    assert ctrl_node.properties == []
+
+
+def test_build_nodes_still_accepts_valid_supply_and_phy_reference():
+    # Regression guard: the new referenced-component check must not break the
+    # normal case where the referenced component genuinely exists.
+    ir = HardwareIR(
+        components=[
+            Component(id="usb_ctrl0", type="usb-controller", name="dwc3"),
+            Component(id="usb_phy0", type="usb-phy", name="qcom-usb3-phy"),
+            Component(id="pmic_ldo3", type="regulator", name="ldo3"),
+        ],
+        relations=[
+            Relation(kind="supply", from_="pmic_ldo3", to="usb_ctrl0", property="vbus-supply"),
+            Relation(kind="phy-reference", from_="usb_ctrl0", to="usb_phy0"),
+        ],
+    )
+
+    nodes, unresolved = build_nodes(ir)
+
+    assert unresolved == []
+    ctrl_node = next(n for n in nodes if n.label == "usb_ctrl0")
+    assert len(ctrl_node.properties) == 2
+
+
 def test_build_nodes_handles_empty_relations():
     ir = HardwareIR(components=[Component(id="usb_ctrl0", type="usb-controller", name="dwc3")])
 

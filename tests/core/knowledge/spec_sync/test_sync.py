@@ -2,7 +2,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from dts_gen.core.knowledge.spec_sync.fetcher import FetchError, TrackedFile
-from dts_gen.core.knowledge.spec_sync.sync import KERNEL_BINDING_FILES, sync_bindings
+from dts_gen.core.knowledge.spec_sync.sync import KERNEL_BINDING_FILES, spec_sync_cache_dir, sync_bindings
+
+
+def test_spec_sync_cache_dir_derives_consistent_path_from_base_dir():
+    base_dir = Path("/some/base/dir")
+
+    assert spec_sync_cache_dir(base_dir) == base_dir / "knowledge" / "data" / "dt_spec"
 
 
 def test_sync_bindings_first_run_marks_all_files_as_first_sync(tmp_path: Path):
