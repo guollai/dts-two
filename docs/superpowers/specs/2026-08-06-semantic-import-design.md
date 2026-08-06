@@ -72,7 +72,8 @@ src/dts_gen/core/pipeline/semantic_import.py
 import re
 
 # "R3 pin 1" / "SU1C pin G37" / "Q54 pin D" / "R544 pin2"（无空格变体）
-_LABEL_RE = re.compile(r"^([A-Za-z0-9_\-\.\?]+)\s*pin\s*([A-Za-z0-9]+)$", re.IGNORECASE)
+# 要求"pin"前至少一个空白，避免"WATCHDOG_PING"这类含pin子串的裸网络名被误解析
+_LABEL_RE = re.compile(r"^([A-Za-z0-9_\-\.\?]+)\s+pin\s*([A-Za-z0-9]+)$", re.IGNORECASE)
 # 跨页引用条目，如 "[22]"、"[7,37,8]"、"[47-C4,47-D4]"
 _BRACKET_RE = re.compile(r"^\[.*\]$")
 
@@ -242,3 +243,7 @@ sample = {
 - `Component.type` 规范化：把自由文本（`"transistor (MOSFET, PJE138K SOT-523)"`）归类到受限词汇体系，或扩展受限词汇覆盖更多器件类型
 - 多页/跨block合并逻辑：待`dts_one`完成跨页括号引用解析后，设计如何把多个`block_semantic.json`（多页）合并成一份完整的跨页HardwareIR
 - 与`dts_one`的仓库整合方式（当前`pdf_schematic`代码存放位置——`core/pipeline/hardware_extractor/`内部子模块 vs 独立顶层包，此问题在本次讨论中被暂时搁置）
+- 最终whole-branch review（真实23份`dts_one`样本数据验证）发现两处遗留问题，登记留给"接入`extract_hardware_graph`"任务一并处理（现阶段本模块未接入任何真实调用链路，暂不构成风险）：
+  - `import_block_semantic`对`components`/`nets`/`connectedLabels`列表里的非dict、非字符串条目（如混入`None`）没有防御，会抛未捕获的`AttributeError`——当前真实样本未触发，但`dts_one`输出格式仍在迭代，不能完全排除
+  - 同一`designator`跨block出现不同`componentType`时，目前静默"后者覆盖前者"，零提示——真实样本中已观测到19个此类冲突（如`SD38`同时被标注为`transistor`和`diode`），需要决定是否产出`UnresolvedItem`提示冲突
+
