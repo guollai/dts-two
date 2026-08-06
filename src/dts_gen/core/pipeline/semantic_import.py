@@ -50,6 +50,30 @@ def import_block_semantic(data: dict, page: int | None = None) -> ImportResult:
                 continue
             components[designator] = Component(id=designator, type=component_type, name=designator)
 
-    ir = HardwareIR(components=list(components.values()), nets=[], unresolved=unresolved)
+    nets: list[Net] = []
+    for block in data.get("blocks", []):
+        block_id = block.get("blockId", "unknown_block")
+        for net_seq, net_entry in enumerate(block.get("nets", []), start=1):
+            name = net_entry.get("netNameLabel") or f"net_{block_id}_{net_seq:03d}"
+            members: list[str] = []
+            for label in net_entry.get("connectedLabels", []):
+                parsed = parse_connected_label(label)
+                if parsed is None:
+                    if "pin" in label.lower() and not _BRACKET_RE.match(label.strip()):
+                        unresolved.append(
+                            UnresolvedItem(
+                                field=f"net:{name}",
+                                reason=f"无法解析连接标签: {label!r}",
+                                page=page,
+                            )
+                        )
+                    continue
+                designator, pin = parsed
+                if designator not in components:
+                    components[designator] = Component(id=designator, type="unknown", name=designator)
+                members.append(f"{designator}:{pin}")
+            nets.append(Net(name=name, members=members))
+
+    ir = HardwareIR(components=list(components.values()), nets=nets, unresolved=unresolved)
     return ImportResult(ir=ir, unresolved=unresolved)
 

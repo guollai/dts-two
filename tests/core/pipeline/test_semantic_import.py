@@ -114,3 +114,138 @@ def test_import_block_semantic_handles_block_missing_components_key():
     result = import_block_semantic(data)
 
     assert result.ir.components == []
+
+
+def test_import_block_semantic_builds_net_with_parsed_members():
+    data = {
+        "blocks": [
+            {
+                "blockId": "block_0003",
+                "nets": [
+                    {"netNameLabel": "PCIE4_REFCLK_100M+", "connectedLabels": ["R3 pin 1", "R5 pin 1"]},
+                ],
+                "components": [
+                    {"designator": "R3", "componentType": "resistor"},
+                    {"designator": "R5", "componentType": "resistor"},
+                ],
+            }
+        ]
+    }
+
+    result = import_block_semantic(data)
+
+    assert len(result.ir.nets) == 1
+    net = result.ir.nets[0]
+    assert net.name == "PCIE4_REFCLK_100M+"
+    assert net.members == ["R3:1", "R5:1"]
+
+
+def test_import_block_semantic_skips_bare_net_name_self_reference():
+    data = {
+        "blocks": [
+            {
+                "blockId": "block_0003",
+                "nets": [
+                    {"netNameLabel": "PCIE4_REFCLK_100M+", "connectedLabels": ["PCIE4_REFCLK_100M+", "R3 pin 1"]},
+                ],
+                "components": [{"designator": "R3", "componentType": "resistor"}],
+            }
+        ]
+    }
+
+    result = import_block_semantic(data)
+
+    assert result.ir.nets[0].members == ["R3:1"]
+    assert result.unresolved == []
+
+
+def test_import_block_semantic_skips_bracket_reference_without_unresolved():
+    data = {
+        "blocks": [
+            {
+                "blockId": "block_0003",
+                "nets": [
+                    {"netNameLabel": "DOCK_VDM_PWR_ON", "connectedLabels": ["SQ17 pin 1", "[5]"]},
+                ],
+                "components": [{"designator": "SQ17", "componentType": "transistor"}],
+            }
+        ]
+    }
+
+    result = import_block_semantic(data)
+
+    assert result.ir.nets[0].members == ["SQ17:1"]
+    assert result.unresolved == []
+
+
+def test_import_block_semantic_reports_unresolved_for_uncertain_pin_label():
+    data = {
+        "blocks": [
+            {
+                "blockId": "block_0003",
+                "nets": [
+                    {"netNameLabel": None, "connectedLabels": ["C? pin 1"]},
+                ],
+            }
+        ]
+    }
+
+    result = import_block_semantic(data)
+
+    assert result.ir.nets[0].members == []
+    assert len(result.unresolved) == 1
+    assert "C? pin 1" in result.unresolved[0].reason
+
+
+def test_import_block_semantic_generates_placeholder_name_for_null_net_label():
+    data = {
+        "blocks": [
+            {
+                "blockId": "block_0002",
+                "nets": [
+                    {"netNameLabel": None, "connectedLabels": ["SU1D pin G39"]},
+                    {"netNameLabel": None, "connectedLabels": ["SU1D pin G40"]},
+                ],
+                "components": [{"designator": "SU1D", "componentType": "ic"}],
+            }
+        ]
+    }
+
+    result = import_block_semantic(data)
+
+    names = [n.name for n in result.ir.nets]
+    assert names == ["net_block_0002_001", "net_block_0002_002"]
+
+
+def test_import_block_semantic_auto_creates_unknown_component_for_undeclared_designator():
+    data = {
+        "blocks": [
+            {
+                "blockId": "block_0001",
+                "nets": [
+                    {"netNameLabel": "SOME_NET", "connectedLabels": ["Q99 pin 1"]},
+                ],
+                "components": [],
+            }
+        ]
+    }
+
+    result = import_block_semantic(data)
+
+    q99 = next(c for c in result.ir.components if c.id == "Q99")
+    assert q99.type == "unknown"
+    assert q99.name == "Q99"
+    assert result.ir.nets[0].members == ["Q99:1"]
+
+
+def test_import_block_semantic_handles_net_missing_connected_labels_key():
+    data = {
+        "blocks": [
+            {"blockId": "block_0001", "nets": [{"netNameLabel": "SOME_NET"}]},
+        ]
+    }
+
+    result = import_block_semantic(data)
+
+    assert result.ir.nets[0].name == "SOME_NET"
+    assert result.ir.nets[0].members == []
