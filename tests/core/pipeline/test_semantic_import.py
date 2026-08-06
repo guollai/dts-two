@@ -37,6 +37,10 @@ def test_parse_connected_label_returns_none_for_uncertain_designator():
     assert parse_connected_label("C? pin 1") is None
 
 
+def test_parse_connected_label_returns_none_for_bare_net_name_containing_pin_substring():
+    assert parse_connected_label("WATCHDOG_PING") is None
+
+
 def test_import_block_semantic_converts_components_with_designator_and_type():
     data = {
         "blocks": [

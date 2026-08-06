@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from dts_gen.core.ir.models import Component, HardwareIR, Net, UnresolvedItem
 
 # "R3 pin 1" / "SU1C pin G37" / "Q54 pin D" / "R544 pin2"（无空格变体）
-_LABEL_RE = re.compile(r"^([A-Za-z0-9_\-\.\?]+)\s*pin\s*([A-Za-z0-9]+)$", re.IGNORECASE)
+_LABEL_RE = re.compile(r"^([A-Za-z0-9_\-\.\?]+)\s+pin\s*([A-Za-z0-9]+)$", re.IGNORECASE)
 # 跨页引用条目，如 "[22]"、"[7,37,8]"、"[47-C4,47-D4]"
 _BRACKET_RE = re.compile(r"^\[.*\]$")
 
