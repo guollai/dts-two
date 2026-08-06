@@ -253,3 +253,39 @@ def test_import_block_semantic_handles_net_missing_connected_labels_key():
 
     assert result.ir.nets[0].name == "SOME_NET"
     assert result.ir.nets[0].members == []
+
+
+def test_import_block_semantic_end_to_end_real_sample_shape():
+    data = {
+        "blocks": [
+            {
+                "blockId": "block_0003",
+                "nets": [
+                    {
+                        "netNameLabel": "PCIE4_REFCLK_100M+",
+                        "connectedLabels": ["PCIE4_REFCLK_100M+", "R3 pin 1", "R5 pin 1"],
+                    },
+                    {
+                        "netNameLabel": "CLKGEN_CLK3_100M+",
+                        "connectedLabels": ["R3 pin 2", "CLKGEN_CLK3_100M+ [13]"],
+                    },
+                ],
+                "components": [
+                    {"designator": "R3", "componentType": "resistor", "pinCount": 2},
+                    {"designator": "R5", "componentType": "resistor", "pinCount": 2},
+                ],
+            }
+        ]
+    }
+
+    result = import_block_semantic(data)
+
+    ids = {c.id for c in result.ir.components}
+    assert ids == {"R3", "R5"}
+
+    net_by_name = {n.name: n for n in result.ir.nets}
+    assert net_by_name["PCIE4_REFCLK_100M+"].members == ["R3:1", "R5:1"]
+    assert net_by_name["CLKGEN_CLK3_100M+"].members == ["R3:2"]
+
+    assert result.ir.unresolved == []
+    assert result.ir.relations == []
